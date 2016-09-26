@@ -9,288 +9,335 @@
 
 Tokenizer::Tokenizer() {
     // Initialize tokenizer
-    this->previous_state = 1;
-    this->current_state = 1;
-    this->new_char = ' ';
-    this->held_char = ' ';
+    current_state = 0;      // whitespace state
+    buffer_ready = true;
 }
 
-void Tokenizer::analyze(std::ifstream & input) {
+std::vector<Token> Tokenizer::getTokens(std::ifstream & input) {
+    // Reads input file, processing character by character.
+    // Returns vector of tokens found.
+
     char c;
-    this->token = "";
 
     // Read input file while processing characters
     while (input.get(c)) {
-        this->new_char = c;
-        process_char(this->new_char);
+        // Analyze character
+        handle_char(c);
+
+        // Start processing next token
+        if (buffer_ready) {
+            init_state(c);
+        }
+    } // Finished processing intput file
+
+    // Return vector of tokens
+    return tokens;
+}
+
+void Tokenizer::init_state(char new_ch) {
+    // Flushes token buffer, starting a new one
+    token_buffer = "";
+
+    // Initialize tokenizing state based on current character
+    if ((isspace(new_ch) || new_ch == '\0') && (new_ch != '\r') && (new_ch != '\n')) {
+        // Whitespace
+        current_state = 0;
+        return;
+    } else if (isalpha(new_ch)) {
+        // Alphabetical
+        current_state = 1;
+    } else if (isnumber(new_ch)) {
+        // Numerical
+        current_state = 2;
+    } else {
+        // Operators and punctuation
+        switch (new_ch) {
+        case '+':
+        case '-':
+        case '/':
+        case '*':
+        case '&':
+        case '|':
+        case ';':
+        case ',':
+        case '(':
+        case ')':
+        case '{':
+        case '}':
+            // Unambiguous single character
+            current_state = 10;
+            break;
+
+        case '"':
+            // String start
+            current_state = 3;
+            break;
+
+        case '#':
+            // Comment start
+            current_state = 4;
+            break;
+
+        case '!':
+            // Bang
+            current_state = 5;
+            break;
+
+        case '=':
+            // Equals
+            current_state = 6;
+            break;
+
+        case '>':
+            // GT
+            current_state = 7;
+
+        case '<':
+            // LT
+            current_state = 8;
+            break;
+
+        case '\r':
+        case '\n':
+            // Breaks - more whitespace
+            current_state = 0;
+
+        default:
+            // UNKNOWN CHARACTER
+            return; // ?
+        }
+    }
+
+    // Begin new token;
+    token_buffer+=new_ch;
+    buffer_ready = false;
+    return;
+}
+
+void Tokenizer::handle_char(char new_ch) {
+    // Checks for token ending conditions and buffer tasks for each possible state.
+
+    switch (current_state) {
+    case 0: // ----- DEFAULT STATE
+        // Buffer is now ready for character
+        buffer_ready = true;
+        return;
+
+    case 1: // ----- WORD
+        // Close word token on any non-alphanumeric character
+        if (!isalpha(new_ch) && !isnumber(new_ch)) {
+            // Determine token type and create token
+            std::string type = get_word_type(token_buffer);
+            create_token(type);
+            // Open buffer to read incoming character
+            buffer_ready = true;
+        } else {
+            // Add incoming character to token buffer
+            token_buffer+=new_ch;
+        }
+        break;
+
+    case 2: // ----- NUMBER
+        // Close number token on anything non-numerical
+        if (!isnumber(new_ch)) {
+            if (isalpha(new_ch)) {
+                // ERROR
+                // !!
+            } else {
+                // Create NUMBER token
+                create_token("NUMBER");
+                // Open buffer to read incoming character
+                buffer_ready = true;
+            }
+        } else {
+            // Add incoming character to token buffer
+            token_buffer+=new_ch;
+        }
+        break;
+
+    case 3: // ----- STRING
+        // Close string when a " is reached
+        if (new_ch == '\"') {
+            // Add last quotation mark to token
+            token_buffer+=new_ch;
+            // Keep buffer closed from handling incoming character
+            current_state = 0;
+            // Create STRING token
+            create_token("STRING");
+        } else {
+            // Add incoming character to token buffer
+            token_buffer+=new_ch;
+        }
+        break;
+
+    case 4: // ----- COMMENT
+        // Close comment on a newline
+        if (new_ch == '\r' || new_ch == '\n') {
+            // Ready to read tokens again
+            buffer_ready = true;
+        }
+        // Otherwise, do nothing until comment ends
+        break;
+
+    case 5: // ----- ! EXC
+        // Could be a NOT or a RELOP
+        if (new_ch == '=') {
+            // Add incoming character to token buffer
+            token_buffer+=new_ch;
+            // Keep buffer closed from handling incoming character
+            current_state = 0;
+            // Create a RELOP token
+            create_token("RELOP");
+        } else {
+            // Create a NOT token
+            create_token("NOT");
+            // Open buffer to read incoming character
+            buffer_ready = true;
+        }
+        break;
+
+    case 6: // ----- = EQUALS
+        // Check for second '='
+        if (new_ch == '=') {
+            // Add incoming character to token buffer
+            token_buffer+=new_ch;
+            // Keep buffer closed from handling incoming character
+            current_state = 0;
+            // Create RELOP token
+            create_token("RELOP");
+        } else {
+            // Without the second '=', it's an error
+            create_token("ERROR");
+            // Open buffer to read incoming character
+            buffer_ready = true;
+        }
+        break;
+
+    case 7: // ----- > GT
+        // Could be a > or a >=
+        if (new_ch == '=') {
+            // Add incoming character to token buffer
+            token_buffer+=new_ch;
+            // Keep buffer closed from handling incoming character
+            current_state = 0;
+            // Create RELOP token
+            create_token("RELOP");
+        } else {
+            // Create '>' token
+            create_token("RELOP");
+            // Open buffer to read incoming character
+            buffer_ready = true;
+        }
+        break;
+
+    case 8: // ----- < LT
+        // Could be a < or a <= or an ASSIGNOP
+        if (new_ch == '-') {
+            // Add incoming character to token buffer
+            token_buffer+=new_ch;
+            // Keep buffer closed from handling incoming character
+            current_state = 0;
+            // Create ASSIGNOP token
+            create_token("ASSIGNOP");
+        } else if (new_ch == '=') {
+            // Add incoming character to token buffer
+            token_buffer+=new_ch;
+            // Keep buffer closed from handling incoming character
+            current_state = 0;
+            // Create RELOP token
+            create_token("RELOP");
+        } else {
+            // Create '<' token
+            create_token("RELOP");
+            // Open buffer to read incoming character
+            buffer_ready = true;
+        }
+        break;
+
+    case 10: // ----- Unambiguous single character
+        // Create token immediately
+        std::string type = get_op_type(token_buffer[0]);
+        create_token(type);
+        // Open buffer to read incoming character
+        buffer_ready = true;
+        break;
+
     }
 }
 
-void Tokenizer::process_char(char c) {
-
-    //
-    // Determine state
-    //
-    int char_type = get_char_type(c);
-    this->previous_state = current_state;
-    this->current_state = transitions[this->current_state][char_type];
-
-    //
-    // Handle completed token
-    //
-    if (current_state == 1) {   // FINISHED
-
-        // Set token type
-        if (this->token_type == "WORD") {
-            this->token_type = get_word_type(this->token);
-        }
-        else if (this->token_type == "SINGLE") {
-            this->token_type = get_op_type(this->token[0]);
-        }
-        else if (this->token_type == "EQUALS") {
-            this->token_type = "RELOP";
-        }
-        else if (this->token_type == "ERROR") {
-            this->token_type = "ERROR";
-        }
-
-        // If it's a string, append final character
-        if (previous_state == 5) {
-            this->token = (this->token) + c;
-        }
-
-        // Print token
-        if (this->token_type != "COMMENT") // (Don't print comments)
-            print_token();
-
-        // Update state
-        if (previous_state != 5 ) { // (Don't do this for strings)
-            this->previous_state = current_state;
-            this->current_state = transitions[this->current_state][char_type];
-        }
-    }
-
-    //
-    // Handle incoming character
-    //
-    if (current_state == 0) {               // ERROR
-        this->token_type = "ERROR";
-        this->token = (this->token);
-
-        // Print error token
-        print_token();
-
-        // Reset state twice
-        this->previous_state = current_state;
-        this->current_state = transitions[this->current_state][char_type];
-        this->previous_state = current_state;
-        this->current_state = transitions[this->current_state][char_type];
-    }
-
-    if (current_state == 3) {               // WORD
-        this->token_type = "WORD";
-        this->token = (this->token) + c;
-    }
-    else if (current_state == 4) {          // NUMBER
-        this->token_type = "NUM";
-        this->token = (this->token) + c;
-    }
-    else if (current_state == 5) {          // STRING
-        this->token_type = "STRING";
-        this->token = (this->token) + c;
-    }
-    else if (current_state == 6) {          // LT
-        this->token = (this->token) + c;
-    }
-    else if (current_state == 7) {          // GT
-        this->token = (this->token) + c;
-    }
-    else if (current_state == 8) {          // ASSIGNOP
-        this->token_type = "ASSIGNOP";
-        this->token = (this->token) + c;
-    }
-    else if (current_state == 9) {          // RELOP
-        this->token_type = "RELOP";
-        this->token = (this->token) + c;
-    }
-    else if (current_state == 13 ) {        // COMMENT
-        this->token_type = "COMMENT";
-        this->token = (this->token) + c;
-    }
-    else if (current_state == 12 && char_type != 1 && char_type != 22 ) {          // SINGLE CHAR
-        this->token_type = "SINGLE";
-        this->token = c;
-    }
-    else if (current_state == 11) {         // EQUALS
-        this->token_type = "EQUALS";
-        this->token = (this->token) + c;
-    }
-    else if (current_state == 2) {         // WS
-        // Do nothing
-    }
-}
-
-void Tokenizer::print_token() {
-    // Print out token info and reset token
-
-    std::cout << "TOKEN:" << std::left << std::setw(15) << this->token_type << "\t" << this->token << std::endl;
-    this->token = "";
-    this->token_type = "";
-}
-
-int Tokenizer::get_char_type(char c) {
-    // Get type of char for use in transition matrix
-
-    if ( (isspace(c) || c=='\0') && (c != '\r') && (c != '\n') ) {
-        return 1;
-    }
-    else if (isalpha(c)) {
-        return 2;
-    }
-    else if (isnumber(c)) {
-        return 3;
-    }
-    else {
-        switch (c) {
-            case '+':
-                // PLUS
-                return 4;
-            case '-':
-                // MINUS
-                return 5;
-            case '/':
-                // SLASH
-                return 6;
-            case '*':
-                // STAR
-                return 7;
-            case '&':
-                // AND
-                return 8;
-            case '#':
-                // POUND
-                return 9;
-            case '!':
-                // EXCL
-                return 10;
-            case '|':
-                // PIPE
-                return 11;
-            case '=':
-                // EQUALS
-                return 12;
-            case ';':
-                // SEMICOLON
-                return 13;
-            case '"':
-                // QUOTE
-                return 14;
-            case '(':
-                // PARENL
-                return 15;
-            case ')':
-                // PARENR
-                return 16;
-            case '<':
-                // LT
-                return 17;
-            case '>' :
-                // GT
-                return 18;
-            case ',':
-                // COMMA
-                return 19;
-            case '{':
-                // CURLL
-                return 20;
-            case '}':
-                // CURLR
-                return 21;
-            case '\r':
-            case '\n':
-                // RETURN
-                return 22;
-            default:
-                // UNKNOWN CHARACTER
-                return 23;
-                break;
-        }
-    }
-
-    return 0;
+void Tokenizer::create_token(std::string type) {
+    // Create a new token and save it to the token vector
+    Token * new_token = new Token();
+    // Set token type and value
+    new_token->type = type;
+    new_token->value = token_buffer;
+    // Save token to token vector
+    tokens.push_back(*new_token);
 }
 
 std::string Tokenizer::get_word_type(std::string value) {
     // Get token type for word types
-
     if (value == "function") {
         return "FUNCTION";
-    }
-    else if (value == "var") {
+    } else if (value == "var") {
         return "VAR";
-    }
-    else if (value == "if") {
+    } else if (value == "if") {
         return "IF";
-    }
-    else if (value == "else") {
+    } else if (value == "else") {
         return "ELSE";
-    }
-    else if (value == "while") {
+    } else if (value == "while") {
         return "WHILE";
-    }
-    else if (value == "return") {
+    } else if (value == "return") {
         return "WHILE";
-    }
-    else {
+    } else {
         return "ID";
     }
 }
 
 std::string Tokenizer::get_op_type(char op) {
     // Get token type for single characters
-
-    switch (this->token[0]) {
-        case '+':
-        case '-':
-            return "ADDOP";
-            break;
-        case '&':
-            return "AND";
-            break;
-        case ',':
-            return "COMMA";
-            break;
-        case '{':
-            return "CURLL";
-            break;
-        case '}':
-            return "CURLR";
-            break;
-        case '/':
-        case '*':
-            return "MULOP";
-            break;
-        case '!':
-            return "NOT";
-            break;
-        case '|':
-            return "OR";
-            break;
-        case '(':
-            return "PARENL";
-            break;
-        case ')':
-            return "PARENR";
-            break;
-        case '<':
-        case '>':
-            return "RELOP";
-            break;
-        case ';':
-            return "SEMICOLON";
-            break;
-        default:
-            return "ERROR";
-            break;
+    switch (op) {
+    case '+':
+    case '-':
+        return "ADDOP";
+        break;
+    case '&':
+        return "AND";
+        break;
+    case ',':
+        return "COMMA";
+        break;
+    case '{':
+        return "CURLL";
+        break;
+    case '}':
+        return "CURLR";
+        break;
+    case '/':
+    case '*':
+        return "MULOP";
+        break;
+    case '!':
+        return "NOT";
+        break;
+    case '|':
+        return "OR";
+        break;
+    case '(':
+        return "PARENL";
+        break;
+    case ')':
+        return "PARENR";
+        break;
+    case '<':
+    case '>':
+        return "RELOP";
+        break;
+    case ';':
+        return "SEMICOLON";
+        break;
+    default:
+        return "ERROR";
+        break;
     }
 }

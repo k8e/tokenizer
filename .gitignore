@@ -1,5 +1,8 @@
 # Executable
 tokenizer
 
+# Debug stuff
+*.dSYM
+
 # .DS_Store
 .DS_Store

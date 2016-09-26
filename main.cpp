@@ -7,6 +7,7 @@
 
 #include <iostream>
 #include <fstream>
+#include <iomanip>
 #include <string>
 #include <vector>
 
@@ -15,9 +16,7 @@
 using namespace std;
 
 int main(int argc, const char * argv[]) {
-
-    // Default filename for debugging
-    string filename = "input_old.txt";
+    string filename;
 
     // Catch argument errors
     if (argc != 2) {
@@ -28,13 +27,21 @@ int main(int argc, const char * argv[]) {
 
     // Get filename from arguments
     filename = argv[1];
-    cout << "FILENAME: " << filename << "\n" << endl;
     ifstream inputFile;
-    inputFile.open(filename.c_str());     // Input file
+    inputFile.open(filename.c_str());
 
-    // Create tokenizer object and analyze file
+    // Create tokenizer object and token list
     Tokenizer tokenizer;
-    tokenizer.analyze(inputFile);
+    vector<Token> tokenList;
+
+    // Use tokenizer to get list of tokens from input file
+    tokenList = tokenizer.getTokens(inputFile);
+
+    // Iterate through token list, printing out token info
+    std::vector<Token>::iterator token;
+    for (token = tokenList.begin(); token != tokenList.end(); ++token) {
+        std::cout << "TOKEN:" << std::left << std::setw(15) << token->type << "\t" << token->value << std::endl;
+    }
 
     return 0;
 }
